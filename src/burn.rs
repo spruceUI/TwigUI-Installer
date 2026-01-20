@@ -86,12 +86,10 @@ async fn burn_image_windows(
     progress_tx: mpsc::UnboundedSender<BurnProgress>,
     cancel_token: CancellationToken,
 ) -> Result<(), String> {
-    use std::fs::OpenOptions;
-    use std::os::windows::io::AsRawHandle;
-    use std::io::{Read, Seek, SeekFrom};
-    use windows::Win32::Foundation::{HANDLE, CloseHandle, GENERIC_READ, GENERIC_WRITE};
+    use std::io::Read;
+    use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
     use windows::Win32::Storage::FileSystem::{
-        CreateFileW, SetFilePointerEx, WriteFile, FILE_BEGIN,
+        CreateFileW, WriteFile,
         FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
         FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH,
     };

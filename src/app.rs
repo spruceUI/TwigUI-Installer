@@ -441,20 +441,18 @@ impl InstallerApp {
                 }
             });
 
-            write_card_log(&format!(
+            crate::debug::log(&format!(
                 "Burning image: {:?} -> {}",
                 img_path, drive.device_path
             ));
 
             if let Err(e) = burn_image(&img_path, &drive.device_path, burn_tx, cancel_token_clone.clone()).await {
                 if e.contains("cancelled") {
-                    write_card_log("Burn cancelled");
                     log("Burn cancelled");
                     let _ = std::fs::remove_dir_all(&temp_extract_dir);
                     let _ = state_tx_clone.send(AppState::Idle);
                     return;
                 }
-                write_card_log(&format!("Burn error: {}", e));
                 log(&format!("Burn error: {}", e));
                 let _ = std::fs::remove_dir_all(&temp_extract_dir);
                 let _ = state_tx_clone.send(AppState::Error);
@@ -463,7 +461,6 @@ impl InstallerApp {
 
             let _ = burn_handle.await;
             log("Burn complete");
-            write_card_log("Burn complete");
             crate::debug::log("Burn complete");
 
             // Clean up temp extraction folder
@@ -472,11 +469,9 @@ impl InstallerApp {
 
             // Cleanup temp file
             let _ = tokio::fs::remove_file(&download_path).await;
-            write_card_log("Cleaned up temp download file");
             crate::debug::log("Cleaned up temp download file");
 
             log("Burn complete! You can now safely eject the SD card.");
-            write_card_log("Burn complete!");
             crate::debug::log("Burn complete!");
             let _ = state_tx_clone.send(AppState::Complete);
         });

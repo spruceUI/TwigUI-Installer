@@ -7,19 +7,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-// Embed platform-specific 7z binaries
-#[cfg(target_os = "windows")]
-const SEVEN_ZIP_EXE: &[u8] = include_bytes!("../assets/Windows/7zr.exe");
-
-#[cfg(target_os = "linux")]
-const SEVEN_ZIP_EXE: &[u8] = include_bytes!("../assets/Linux/7zzs");
-
-#[cfg(target_os = "macos")]
-const SEVEN_ZIP_EXE: &[u8] = include_bytes!("../assets/Mac/7zz");
-
-#[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone)]
@@ -373,7 +360,7 @@ pub async fn extract_zip_and_find_img(
         let mut file = archive.by_index(i)
             .map_err(|e| format!("Failed to read file {}: {}", i, e))?;
 
-        let file_path = match file.enclosed_name() {
+        let file_path: std::path::PathBuf = match file.enclosed_name() {
             Some(path) => path.to_owned(),
             None => {
                 crate::debug::log(&format!("Skipping file {} (invalid name)", i));
@@ -535,11 +522,10 @@ pub async fn decompress_img_gz(
 
         total_written += bytes_read as u64;
 
-        // Send progress update (estimate based on compressed size)
-        let _ = progress_tx.send(ExtractProgress::Progress {
-            current: total_written.min(gz_size),
-            total: gz_size,
-        });
+        // Send progress update (estimate based on written bytes)
+        // Note: Decompressed size is typically larger than compressed, so we estimate
+        let percent = ((total_written.min(gz_size * 3) * 100) / (gz_size * 3)).min(99) as u8;
+        let _ = progress_tx.send(ExtractProgress::Progress { percent });
 
         // Yield to allow UI updates
         tokio::task::yield_now().await;

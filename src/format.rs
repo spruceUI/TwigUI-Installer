@@ -6,8 +6,6 @@ use tokio_util::sync::CancellationToken;
 use std::process::Stdio;
 #[cfg(target_os = "windows")]
 use tokio::io::AsyncWriteExt;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -28,6 +26,64 @@ pub enum FormatProgress {
 // =============================================================================
 // Windows Implementation
 // =============================================================================
+
+/// Get the physical disk number from a drive letter (Windows only)
+/// Used by burn.rs to get the disk number for raw disk access
+#[cfg(target_os = "windows")]
+pub fn get_disk_number_from_drive(drive_letter: char) -> Result<u32, String> {
+    use std::fs::OpenOptions;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::IO::DeviceIoControl;
+    use windows::Win32::System::Ioctl::IOCTL_STORAGE_GET_DEVICE_NUMBER;
+
+    crate::debug::log(&format!("Getting disk number for drive: {}", drive_letter));
+
+    let volume_path = format!("\\\\.\\{}:", drive_letter);
+
+    let file = OpenOptions::new()
+        .read(true)
+        .open(&volume_path)
+        .map_err(|e| format!("Failed to open volume {}: {}", drive_letter, e))?;
+
+    let handle = HANDLE(file.as_raw_handle() as *mut std::ffi::c_void);
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct StorageDeviceNumber {
+        device_type: u32,
+        device_number: u32,
+        partition_number: u32,
+    }
+
+    let mut device_number = StorageDeviceNumber::default();
+    let mut bytes_returned = 0u32;
+
+    let result = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_GET_DEVICE_NUMBER,
+            None,
+            0,
+            Some(&mut device_number as *mut _ as *mut std::ffi::c_void),
+            std::mem::size_of::<StorageDeviceNumber>() as u32,
+            Some(&mut bytes_returned),
+            None,
+        )
+    };
+
+    if result.is_err() {
+        return Err(format!(
+            "Failed to get disk number for drive {}: {:?}",
+            drive_letter, result
+        ));
+    }
+
+    let disk_number = device_number.device_number;
+    crate::debug::log(&format!("Disk number: {}", disk_number));
+
+    Ok(disk_number)
+}
 
 /// Format a drive to FAT32 with MBR partition table (Windows)
 /// Works for drives of any size (bypasses Windows 32GB FAT32 limit)
@@ -245,12 +301,15 @@ pub async fn format_drive_fat32(
 
     let _ = progress_tx.send(FormatProgress::Progress { percent: 70 });
 
-    // Use our custom FAT32 formatter with disk number (writes to PhysicalDrive directly)
-    crate::debug::log("Starting custom FAT32 format...");
-    crate::fat32::format_fat32_large(disk_number, volume_label, disk_size, progress_tx.clone())
-        .await?;
+    // Note: FAT32 formatting removed - this burner writes raw disk images instead
+    // The format_drive_fat32 function is kept only for backwards compatibility
+    // and because get_disk_number_from_drive() is still used by burn.rs
+    crate::debug::log("Format function called but FAT32 formatting is disabled (raw image burning only)");
+    return Err("FAT32 formatting is no longer supported - this tool burns raw disk images".to_string());
 
-    let _ = progress_tx.send(FormatProgress::Progress { percent: 95 });
+    #[allow(unreachable_code)]
+    {
+        let _ = progress_tx.send(FormatProgress::Progress { percent: 95 });
     crate::debug::log("FAT32 format completed, waiting for Windows to recognize filesystem...");
     // Wait for Windows to recognize the new filesystem
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
