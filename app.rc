@@ -1,0 +1,6 @@
+// Windows Resource File
+// Application icon
+IDI_ICON1 ICON "assets/Icons/icon.ico"
+
+// Application manifest (for UAC elevation)
+1 24 "app.manifest"
