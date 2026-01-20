@@ -6,7 +6,7 @@ use crate::config::{
 use crate::burn::{burn_image, BurnProgress};
 use crate::drives::{get_removable_drives, DriveInfo};
 use crate::eject::eject_drive;
-use crate::extract::{extract_zip_and_find_img, ExtractProgress};
+use crate::extract::{decompress_img_gz, ExtractProgress};
 use crate::github::{download_asset, find_release_asset, get_latest_release, DownloadProgress, Release};
 use eframe::egui;
 use std::path::PathBuf;
@@ -308,7 +308,7 @@ impl InstallerApp {
             log("Download complete");
             crate::debug::log("Download complete");
 
-            // Step 3: Extract ZIP and find .img file
+            // Step 3: Decompress .img.gz to get disk image
             // On Linux/macOS, use cache dir to avoid temp space issues
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             let extract_base_dir = dirs::cache_dir().unwrap_or_else(|| temp_dir.clone());
@@ -369,9 +369,9 @@ impl InstallerApp {
                 }
             });
 
-            crate::debug::log(&format!("Extracting ZIP: {:?} -> {:?}", download_path, temp_extract_dir));
+            crate::debug::log(&format!("Decompressing .img.gz: {:?} -> {:?}", download_path, temp_extract_dir));
 
-            let img_path = match extract_zip_and_find_img(&download_path, &temp_extract_dir, ext_tx, cancel_token_clone.clone()).await {
+            let img_path = match decompress_img_gz(&download_path, &temp_extract_dir, ext_tx, cancel_token_clone.clone()).await {
                 Ok(path) => path,
                 Err(e) => {
                     if e.contains("cancelled") {

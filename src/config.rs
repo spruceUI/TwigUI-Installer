@@ -59,8 +59,8 @@ pub const DEFAULT_REPO_INDEX: usize = 0;
 
 /// File extension to look for in GitHub releases (e.g., ".zip", ".7z", ".img.gz")
 /// The burner will download the first asset matching this extension
-/// The archive should contain a single .img file
-pub const ASSET_EXTENSION: &str = ".zip";
+/// For .img.gz: The file will be decompressed to extract the .img file
+pub const ASSET_EXTENSION: &str = ".img.gz";
 
 // ----------------------------------------------------------------------------
 // CONFIGURATION VALIDATION

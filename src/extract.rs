@@ -428,3 +428,147 @@ pub async fn extract_zip_and_find_img(
         "No .img file found in archive. The ZIP should contain a disk image file with .img extension.".to_string()
     })
 }
+
+// =============================================================================
+// GZIP Decompression (for .img.gz files)
+// =============================================================================
+
+/// Decompress a .img.gz file and return the path to the extracted .img file
+pub async fn decompress_img_gz(
+    gz_path: &Path,
+    dest_dir: &Path,
+    progress_tx: mpsc::UnboundedSender<ExtractProgress>,
+    cancel_token: CancellationToken,
+) -> Result<std::path::PathBuf, String> {
+    use async_compression::tokio::bufread::GzipDecoder;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+
+    crate::debug::log_section("GZIP Decompression");
+    crate::debug::log(&format!("Archive: {:?}", gz_path));
+    crate::debug::log(&format!("Destination: {:?}", dest_dir));
+
+    // Check for cancellation before starting
+    if cancel_token.is_cancelled() {
+        let _ = progress_tx.send(ExtractProgress::Cancelled);
+        return Err("Decompression cancelled".to_string());
+    }
+
+    let _ = progress_tx.send(ExtractProgress::Started);
+
+    // Verify archive exists
+    if !gz_path.exists() {
+        crate::debug::log("ERROR: Archive not found");
+        return Err(format!("Archive not found: {:?}", gz_path));
+    }
+    crate::debug::log("Archive file exists");
+
+    // Get file size for progress tracking
+    let gz_size = tokio::fs::metadata(gz_path)
+        .await
+        .map_err(|e| format!("Failed to get archive size: {}", e))?
+        .len();
+    crate::debug::log(&format!("Archive size: {} bytes", gz_size));
+
+    // Ensure destination directory exists
+    if !dest_dir.exists() {
+        crate::debug::log("Creating destination directory...");
+        tokio::fs::create_dir_all(dest_dir)
+            .await
+            .map_err(|e| format!("Failed to create destination directory: {}", e))?;
+    }
+    crate::debug::log("Destination directory ready");
+
+    let _ = progress_tx.send(ExtractProgress::Extracting);
+
+    // Determine output filename (remove .gz extension)
+    let output_filename = gz_path
+        .file_stem()
+        .ok_or_else(|| "Invalid archive filename".to_string())?;
+    let output_path = dest_dir.join(output_filename);
+
+    crate::debug::log(&format!("Output file: {:?}", output_path));
+
+    // Open the .gz file
+    let gz_file = tokio::fs::File::open(gz_path)
+        .await
+        .map_err(|e| format!("Failed to open archive: {}", e))?;
+
+    // Create gzip decoder
+    let buf_reader = BufReader::new(gz_file);
+    let mut decoder = GzipDecoder::new(buf_reader);
+
+    // Create output file
+    let mut output_file = tokio::fs::File::create(&output_path)
+        .await
+        .map_err(|e| format!("Failed to create output file: {}", e))?;
+
+    // Decompress in chunks with progress updates
+    const BUFFER_SIZE: usize = 1024 * 1024; // 1MB chunks
+    let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut total_written: u64 = 0;
+
+    loop {
+        // Check for cancellation
+        if cancel_token.is_cancelled() {
+            crate::debug::log("Decompression cancelled by user");
+            let _ = progress_tx.send(ExtractProgress::Cancelled);
+            // Clean up partial file
+            let _ = tokio::fs::remove_file(&output_path).await;
+            return Err("Decompression cancelled".to_string());
+        }
+
+        // Read decompressed data
+        let bytes_read = decoder
+            .read(&mut buffer)
+            .await
+            .map_err(|e| format!("Failed to decompress: {}", e))?;
+
+        if bytes_read == 0 {
+            break; // EOF
+        }
+
+        // Write to output file
+        output_file
+            .write_all(&buffer[..bytes_read])
+            .await
+            .map_err(|e| format!("Failed to write decompressed data: {}", e))?;
+
+        total_written += bytes_read as u64;
+
+        // Send progress update (estimate based on compressed size)
+        let _ = progress_tx.send(ExtractProgress::Progress {
+            current: total_written.min(gz_size),
+            total: gz_size,
+        });
+
+        // Yield to allow UI updates
+        tokio::task::yield_now().await;
+    }
+
+    // Flush output file
+    output_file
+        .flush()
+        .await
+        .map_err(|e| format!("Failed to flush output file: {}", e))?;
+
+    crate::debug::log(&format!(
+        "Decompression complete. Wrote {} bytes",
+        total_written
+    ));
+
+    // Verify the output is an .img file
+    if let Some(ext) = output_path.extension() {
+        if ext.to_string_lossy().to_lowercase() == "img" {
+            crate::debug::log(&format!("Successfully decompressed .img file: {:?}", output_path));
+            let _ = progress_tx.send(ExtractProgress::Completed);
+            Ok(output_path)
+        } else {
+            Err(format!(
+                "Decompressed file is not an .img file: {:?}",
+                output_path
+            ))
+        }
+    } else {
+        Err(format!("Decompressed file has no extension: {:?}", output_path))
+    }
+}
