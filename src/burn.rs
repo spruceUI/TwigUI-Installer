@@ -75,6 +75,67 @@ pub async fn burn_image(
 }
 
 // =============================================================================
+// Windows Helper Functions
+// =============================================================================
+
+/// Get the physical disk number from a drive letter (Windows only)
+#[cfg(target_os = "windows")]
+fn get_disk_number_from_drive(drive_letter: char) -> Result<u32, String> {
+    use std::fs::OpenOptions;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::IO::DeviceIoControl;
+    use windows::Win32::System::Ioctl::IOCTL_STORAGE_GET_DEVICE_NUMBER;
+
+    crate::debug::log(&format!("Getting disk number for drive: {}", drive_letter));
+
+    let volume_path = format!("\\\\.\\{}:", drive_letter);
+
+    let file = OpenOptions::new()
+        .read(true)
+        .open(&volume_path)
+        .map_err(|e| format!("Failed to open volume {}: {}", drive_letter, e))?;
+
+    let handle = HANDLE(file.as_raw_handle() as *mut std::ffi::c_void);
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct StorageDeviceNumber {
+        device_type: u32,
+        device_number: u32,
+        partition_number: u32,
+    }
+
+    let mut device_number = StorageDeviceNumber::default();
+    let mut bytes_returned = 0u32;
+
+    let result = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_GET_DEVICE_NUMBER,
+            None,
+            0,
+            Some(&mut device_number as *mut _ as *mut std::ffi::c_void),
+            std::mem::size_of::<StorageDeviceNumber>() as u32,
+            Some(&mut bytes_returned),
+            None,
+        )
+    };
+
+    if result.is_err() {
+        return Err(format!(
+            "Failed to get disk number for drive {}: {:?}",
+            drive_letter, result
+        ));
+    }
+
+    let disk_number = device_number.device_number;
+    crate::debug::log(&format!("Disk number: {}", disk_number));
+
+    Ok(disk_number)
+}
+
+// =============================================================================
 // Windows Implementation
 // =============================================================================
 
@@ -104,7 +165,7 @@ async fn burn_image_windows(
         .ok_or_else(|| "Invalid device path".to_string())?;
 
     // Get disk number using Windows API
-    let disk_number = crate::format::get_disk_number_from_drive(drive_letter)?;
+    let disk_number = get_disk_number_from_drive(drive_letter)?;
     crate::debug::log(&format!("Physical disk number: {}", disk_number));
 
     // Open the physical disk for raw access

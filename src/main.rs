@@ -7,12 +7,12 @@ mod debug;
 mod drives;
 mod eject;
 mod extract;
-mod format; // Still needed for Windows disk number detection
 mod github;
 
 // Legacy modules no longer used for image burning:
 // mod copy;    - No longer needed, we burn raw images
 // mod fat32;   - No longer needed, images contain their own partition table
+// mod format;  - No longer needed, disk number detection moved to burn.rs
 
 use app::InstallerApp;
 use config::{load_app_icon, COLOR_BG_DARK, WINDOW_MIN_SIZE, WINDOW_SIZE, WINDOW_TITLE};
