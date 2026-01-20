@@ -52,7 +52,15 @@ pub async fn burn_image(
     // Platform-specific burn implementation
     #[cfg(target_os = "windows")]
     {
-        burn_image_windows(image_path, device_path, image_size, progress_tx, cancel_token).await
+        // Windows uses blocking I/O with HANDLE which is not Send
+        // Run in a blocking task to avoid Send requirement
+        let image_path = image_path.to_owned();
+        let device_path = device_path.to_owned();
+        tokio::task::spawn_blocking(move || {
+            burn_image_windows_sync(&image_path, &device_path, image_size, progress_tx, cancel_token)
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
     }
 
     #[cfg(target_os = "linux")]
@@ -140,7 +148,7 @@ fn get_disk_number_from_drive(drive_letter: char) -> Result<u32, String> {
 // =============================================================================
 
 #[cfg(target_os = "windows")]
-async fn burn_image_windows(
+fn burn_image_windows_sync(
     image_path: &Path,
     device_path: &str,
     image_size: u64,
@@ -244,9 +252,6 @@ async fn burn_image_windows(
             bytes_written,
             total_bytes: image_size,
         });
-
-        // Yield to allow UI updates
-        tokio::task::yield_now().await;
     }
 
     // Close handle
