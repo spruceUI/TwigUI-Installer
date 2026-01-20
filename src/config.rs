@@ -50,8 +50,7 @@ pub const TEMP_PREFIX: &str = env!("CARGO_PKG_NAME");
 // Each entry is (Display Name, GitHub repo in "owner/repo" format)
 
 pub const REPO_OPTIONS: &[(&str, &str)] = &[
-    ("TwigUI (Stable)", "twigUI/twigUI"),
-    ("TwigUI (Nightlies)", "twigUI/twigUI-Nightlies"),
+    ("TwigUI", "spruceUI/twigUI"),
 ];
 
 /// Index of the default repository selection (0 = first option)
